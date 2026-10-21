@@ -3,7 +3,7 @@ An MCP server implementation for Minecraft (Windows), Inspired by [mcpelauncher-
 
 ## Features
 - A DLL injected into `Minecraft.Windows.exe` (GDK build) that serves MCP over HTTP at `127.0.0.1:18080/mcp`.
-- Screenshot capture via Windows.Graphics.Capture.
+- Screenshot capture via Windows.Graphics.Capture, falling back to reading the Direct3D 12 back buffer at `Present` where WGC is unavailable (Wine, such as [BedrockOnLinux](https://github.com/Wyze3306/BedrockOnLinux)).
 - Mouse input through the game's `MouseDevice::feed` function, which registers clicks that SendInput and PostMessage do not.
 - Keyboard input through PostMessage for menus and in-world movement.
 - Tools: `screenshot`, `state`, `move`, `click`, `look`, `scroll` (menus only, not hotbar), `key`, `hold_key` (hold a key for a duration), `type`, `chat`, `batch` (several actions in one call for precise timing, e.g. double-tap to fly or holding two keys at once), `wait`, `focus`, `open_uri`, `ping`.

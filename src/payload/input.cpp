@@ -4,9 +4,11 @@
 
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cstdlib>
 #include <optional>
 #include <string>
+#include <thread>
 #include <unordered_map>
 
 #include "feed.hpp"
@@ -423,7 +425,17 @@ bool focus_game()
     SetFocus(hwnd);
     if (attached)
         AttachThreadInput(self_thread, fg_thread, FALSE);
-    return GetForegroundWindow() == hwnd;
+
+    // Wine activates the window asynchronously, so the foreground switch can land
+    // after SetForegroundWindow returns.
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+    while (GetForegroundWindow() != hwnd)
+    {
+        if (std::chrono::steady_clock::now() >= deadline)
+            return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    return true;
 }
 
 } // namespace input

@@ -20,6 +20,7 @@
 #include <thread>
 
 #include "game_window.hpp"
+#include "swapchain_capture.hpp"
 
 using Microsoft::WRL::ComPtr;
 
@@ -77,19 +78,67 @@ std::string encode_source(IWICImagingFactory* factory, IWICBitmapSource* src)
     return out;
 }
 
-} // namespace
-
-Result screenshot(int max_width, int max_height)
+Result encode(BYTE* bgra, UINT pitch, UINT img_w, UINT img_h, WICRect crop, int client_w,
+              int client_h, int max_width, int max_height)
 {
-    // WGC device/session creation is not safe to run concurrently from several
-    // HTTP worker threads; serialize so overlapping requests cannot deadlock.
-    static std::mutex capture_mutex;
-    std::lock_guard<std::mutex> lock(capture_mutex);
+    UINT crop_w = static_cast<UINT>(crop.Width), crop_h = static_cast<UINT>(crop.Height);
 
-    HWND hwnd = find_game_window();
-    if (!hwnd)
-        return err("game window not found");
+    // Scale to fit within (max_width, max_height), preserving aspect, never up.
+    UINT out_w = crop_w, out_h = crop_h;
+    if (max_width > 0 && max_height > 0)
+    {
+        double s = static_cast<double>(max_width) / crop_w;
+        double sy = static_cast<double>(max_height) / crop_h;
+        if (sy < s)
+            s = sy;
+        if (s > 1.0)
+            s = 1.0;
+        out_w = static_cast<UINT>(crop_w * s + 0.5);
+        out_h = static_cast<UINT>(crop_h * s + 0.5);
+        if (out_w < 1)
+            out_w = 1;
+        if (out_h < 1)
+            out_h = 1;
+    }
 
+    ComPtr<IWICImagingFactory> factory;
+    std::string png;
+    if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                                   IID_PPV_ARGS(&factory))))
+    {
+        ComPtr<IWICBitmap> full;
+        factory->CreateBitmapFromMemory(img_w, img_h, GUID_WICPixelFormat32bppBGRA, pitch,
+                                        pitch * img_h, bgra, &full);
+        ComPtr<IWICBitmapClipper> clipper;
+        factory->CreateBitmapClipper(&clipper);
+        IWICBitmapSource* src = nullptr;
+        if (full && SUCCEEDED(clipper->Initialize(full.Get(), &crop)))
+        {
+            src = clipper.Get();
+            ComPtr<IWICBitmapScaler> scaler;
+            if (out_w != crop_w || out_h != crop_h)
+            {
+                factory->CreateBitmapScaler(&scaler);
+                if (SUCCEEDED(scaler->Initialize(clipper.Get(), out_w, out_h,
+                                                 WICBitmapInterpolationModeFant)))
+                    src = scaler.Get();
+            }
+            png = encode_source(factory.Get(), src);
+        }
+    }
+
+    if (png.empty())
+        return err("PNG encoding failed");
+    Result r{true, std::move(png), {}};
+    r.width = static_cast<int>(out_w);
+    r.height = static_cast<int>(out_h);
+    r.client_width = client_w;
+    r.client_height = client_h;
+    return r;
+}
+
+Result capture_wgc(HWND hwnd, int max_width, int max_height)
+{
     try
     {
         ensure_apartment();
@@ -191,67 +240,14 @@ Result screenshot(int max_width, int max_height)
             client_w = static_cast<int>(img_w);
         if (client_h <= 0 || client_h > static_cast<int>(img_h))
             client_h = static_cast<int>(img_h);
-        UINT crop_w = static_cast<UINT>(client_w), crop_h = static_cast<UINT>(client_h);
-        UINT crop_x = 0, crop_y = img_h - crop_h;
+        WICRect crop{0, static_cast<INT>(img_h) - client_h, client_w, client_h};
 
-        // Scale to fit within (max_width, max_height), preserving aspect, never up.
-        UINT out_w = crop_w, out_h = crop_h;
-        if (max_width > 0 && max_height > 0)
-        {
-            double s = static_cast<double>(max_width) / crop_w;
-            double sy = static_cast<double>(max_height) / crop_h;
-            if (sy < s)
-                s = sy;
-            if (s > 1.0)
-                s = 1.0;
-            out_w = static_cast<UINT>(crop_w * s + 0.5);
-            out_h = static_cast<UINT>(crop_h * s + 0.5);
-            if (out_w < 1)
-                out_w = 1;
-            if (out_h < 1)
-                out_h = 1;
-        }
-
-        ComPtr<IWICImagingFactory> factory;
-        std::string png;
-        if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-                                       IID_PPV_ARGS(&factory))))
-        {
-            ComPtr<IWICBitmap> full;
-            factory->CreateBitmapFromMemory(img_w, img_h, GUID_WICPixelFormat32bppBGRA,
-                                            mapped.RowPitch, mapped.RowPitch * img_h,
-                                            static_cast<BYTE*>(mapped.pData), &full);
-            ComPtr<IWICBitmapClipper> clipper;
-            factory->CreateBitmapClipper(&clipper);
-            WICRect cr{static_cast<INT>(crop_x), static_cast<INT>(crop_y), static_cast<INT>(crop_w),
-                       static_cast<INT>(crop_h)};
-            IWICBitmapSource* src = nullptr;
-            if (full && SUCCEEDED(clipper->Initialize(full.Get(), &cr)))
-            {
-                src = clipper.Get();
-                ComPtr<IWICBitmapScaler> scaler;
-                if (out_w != crop_w || out_h != crop_h)
-                {
-                    factory->CreateBitmapScaler(&scaler);
-                    if (SUCCEEDED(scaler->Initialize(clipper.Get(), out_w, out_h,
-                                                     WICBitmapInterpolationModeFant)))
-                        src = scaler.Get();
-                }
-                png = encode_source(factory.Get(), src);
-            }
-        }
+        Result r = encode(static_cast<BYTE*>(mapped.pData), mapped.RowPitch, img_w, img_h, crop,
+                          client_w, client_h, max_width, max_height);
 
         context->Unmap(staging.Get(), 0);
         session.Close();
         pool.Close();
-
-        if (png.empty())
-            return err("PNG encoding failed");
-        Result r{true, std::move(png), {}};
-        r.width = static_cast<int>(out_w);
-        r.height = static_cast<int>(out_h);
-        r.client_width = client_w;
-        r.client_height = client_h;
         return r;
     }
     catch (const winrt::hresult_error& e)
@@ -262,6 +258,52 @@ Result screenshot(int max_width, int max_height)
     {
         return err("unexpected capture failure");
     }
+}
+
+Result capture_swapchain(HWND hwnd, int max_width, int max_height)
+{
+    swapchain_capture::Frame frame;
+    std::string error;
+    if (!swapchain_capture::grab(frame, error))
+        return err(error);
+
+    RECT rc{};
+    GetClientRect(hwnd, &rc);
+    int client_w = rc.right > 0 ? rc.right : static_cast<int>(frame.width);
+    int client_h = rc.bottom > 0 ? rc.bottom : static_cast<int>(frame.height);
+    WICRect whole{0, 0, static_cast<INT>(frame.width), static_cast<INT>(frame.height)};
+    try
+    {
+        ensure_apartment();
+        return encode(frame.bgra.data(), frame.width * 4, frame.width, frame.height, whole,
+                      client_w, client_h, max_width, max_height);
+    }
+    catch (const winrt::hresult_error& e)
+    {
+        return err(winrt::to_string(e.message()));
+    }
+}
+
+} // namespace
+
+Result screenshot(int max_width, int max_height)
+{
+    // WGC device/session creation is not safe to run concurrently from several
+    // HTTP worker threads; serialize so overlapping requests cannot deadlock.
+    static std::mutex capture_mutex;
+    std::lock_guard<std::mutex> lock(capture_mutex);
+
+    HWND hwnd = find_game_window();
+    if (!hwnd)
+        return err("game window not found");
+
+    Result wgc = capture_wgc(hwnd, max_width, max_height);
+    if (wgc.ok)
+        return wgc;
+    Result fallback = capture_swapchain(hwnd, max_width, max_height);
+    if (fallback.ok)
+        return fallback;
+    return err(wgc.error + "; swapchain fallback: " + fallback.error);
 }
 
 } // namespace capture

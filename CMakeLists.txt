@@ -34,11 +34,13 @@ add_library(bedrock_mcp SHARED
     src/payload/input.cpp
     src/payload/feed.cpp
     src/payload/sigscan.cpp
-    src/payload/capture.cpp)
+    src/payload/capture.cpp
+    src/payload/swapchain_capture.cpp
+)
 target_link_libraries(bedrock_mcp PRIVATE
     fastmcpp_core
     minhook
-    d3d11 dxgi windowscodecs runtimeobject
+    d3d11 d3d12 dxgi windowscodecs runtimeobject
     ole32 oleaut32 shell32 crypt32 psapi)
 target_include_directories(bedrock_mcp PRIVATE ${minhook_SOURCE_DIR}/include)
 # windows.h would otherwise pull in winsock.h, which conflicts with httplib's winsock2.h.
