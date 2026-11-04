@@ -6,7 +6,7 @@ An MCP server implementation for Minecraft (Windows), Inspired by [mcpelauncher-
 - Screenshot capture via Windows.Graphics.Capture, falling back to reading the Direct3D 12 back buffer at `Present` where WGC is unavailable (Wine, such as [BedrockOnLinux](https://github.com/Wyze3306/BedrockOnLinux)).
 - Mouse input through the game's `MouseDevice::feed` function, which registers clicks that SendInput and PostMessage do not.
 - Keyboard input through PostMessage for menus and in-world movement.
-- Tools: `screenshot`, `state`, `move`, `click`, `look`, `scroll` (menus only, not hotbar), `key`, `hold_key` (hold a key for a duration), `type`, `chat`, `batch` (several actions in one call for precise timing, e.g. double-tap to fly or holding two keys at once), `wait`, `focus`, `open_uri`, `ping`.
+- Tools: `screenshot`, `state`, `move`, `click`, `look`, `scroll` (menus only, not hotbar), `key`, `hold_key` (hold a key for a duration), `type`, `chat`, `batch` (several actions in one call for precise timing, e.g. double-tap to fly or holding two keys at once), `wait`, `focus`, `open_uri`, `add_server` (add a server to the Servers tab), `connect_server` (join a server directly, no menu navigation), `ping`.
 
 ## Setup
 Download `bedrock_mcp.dll`, `bedrock_mcp_injector.exe`, `find_feed_signature.py`, and `config.example.json` from the latest release, and keep them in the same folder. The server reads `config.json` from that folder and creates it with defaults on first run, so copying `config.example.json` to `config.json` is optional (do it to customize port, auth, or keybinds).

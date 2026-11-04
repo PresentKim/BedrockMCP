@@ -3,6 +3,7 @@
 #include <shellapi.h>
 #include <wincrypt.h>
 
+#include <cctype>
 #include <chrono>
 #include <condition_variable>
 #include <deque>
@@ -99,6 +100,49 @@ input::Method method_of(const Json& args)
     if (m == "feed")
         return input::Method::Feed;
     return input::default_method();
+}
+
+std::string url_encode(const std::string& s)
+{
+    static const char hex[] = "0123456789ABCDEF";
+    std::string out;
+    for (unsigned char c : s)
+    {
+        if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~')
+            out += static_cast<char>(c);
+        else
+        {
+            out += '%';
+            out += hex[c >> 4];
+            out += hex[c & 0xF];
+        }
+    }
+    return out;
+}
+
+Json open_minecraft_uri(const std::string& uri)
+{
+    if (uri.rfind("minecraft:", 0) != 0)
+        return error_result("uri must start with minecraft:");
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, uri.c_str(), -1, nullptr, 0);
+    std::wstring wide(wlen, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, uri.c_str(), -1, wide.data(), wlen);
+    auto rc = reinterpret_cast<INT_PTR>(
+        ShellExecuteW(nullptr, L"open", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+    if (rc <= 32)
+        return error_result("ShellExecute failed with code " + std::to_string(rc) + " for " + uri);
+    return text_result("opened " + uri);
+}
+
+bool read_server_args(const Json& args, std::string& host, int& port, std::string& error)
+{
+    host = args.value("host", std::string());
+    port = args.value("port", 19132);
+    if (host.empty())
+        error = "host is required";
+    else if (port < 1 || port > 65535)
+        error = "port must be 1-65535";
+    return error.empty();
 }
 
 Json object_schema(Json properties = Json::object(), Json required = Json::array())
@@ -366,14 +410,35 @@ void register_tools(fastmcpp::tools::ToolManager& tm)
     tm.register_tool(Tool{
         "open_uri", object_schema({{"uri", str}}, Json::array({"uri"})), Json(),
         [](const Json& args) -> Json {
-            std::string uri = args.value("uri", std::string());
-            if (uri.rfind("minecraft:", 0) != 0)
-                return error_result("uri must start with minecraft:");
-            int wlen = MultiByteToWideChar(CP_UTF8, 0, uri.c_str(), -1, nullptr, 0);
-            std::wstring wide(wlen, L'\0');
-            MultiByteToWideChar(CP_UTF8, 0, uri.c_str(), -1, wide.data(), wlen);
-            ShellExecuteW(nullptr, L"open", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-            return text_result("ok");
+            return open_minecraft_uri(args.value("uri", std::string()));
+        }});
+
+    tm.register_tool(Tool{
+        "add_server", object_schema({{"name", str}, {"host", str}, {"port", num}},
+                                    Json::array({"name", "host"})),
+        Json(),
+        [](const Json& args) -> Json {
+            std::string host, error;
+            int port = 0;
+            if (!read_server_args(args, host, port, error))
+                return error_result(error);
+            std::string name = args.value("name", std::string());
+            if (name.empty())
+                return error_result("name is required");
+            return open_minecraft_uri("minecraft://?addExternalServer=" + url_encode(name) + "|" +
+                                      url_encode(host) + ":" + std::to_string(port));
+        }});
+
+    tm.register_tool(Tool{
+        "connect_server", object_schema({{"host", str}, {"port", num}}, Json::array({"host"})),
+        Json(),
+        [](const Json& args) -> Json {
+            std::string host, error;
+            int port = 0;
+            if (!read_server_args(args, host, port, error))
+                return error_result(error);
+            return open_minecraft_uri("minecraft://connect/?serverUrl=" + url_encode(host) +
+                                      "&serverPort=" + std::to_string(port));
         }});
 }
 
@@ -412,7 +477,14 @@ std::unordered_map<std::string, std::string> tool_descriptions()
         {"wait", "Sleep for a number of milliseconds (max 10000)."},
         {"focus", "Bring the Minecraft window to the foreground. Only needed for 'send' input; "
                   "'feed' mouse and 'post' keyboard do not need focus."},
-        {"open_uri", "Open a minecraft: deep link, e.g. to add a server."},
+        {"open_uri", "Open a raw minecraft: deep link. For servers prefer add_server/connect_server."},
+        {"add_server", "Add an external server to the Servers tab via the addExternalServer deep link "
+                       "(minecraft://?addExternalServer=name|host:port). 'port' defaults to 19132. "
+                       "Check the result with screenshot."},
+        {"connect_server", "Join a server directly via the connect deep link "
+                           "(minecraft://connect/?serverUrl=host&serverPort=port), skipping the "
+                           "menus. 'port' defaults to 19132. Leaves the current world. The join is "
+                           "asynchronous: wait, then check with screenshot."},
         {"batch", "Run several input actions as one queued task, back to back with no HTTP round-trip "
                   "between them, for precise timing (double-tap to fly, holding two keys at once). "
                   "'actions' is an array of objects, each a 'tool' name plus that tool's args: "
