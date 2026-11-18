@@ -2,8 +2,12 @@
 
 #include <windows.h>
 
+#include <psapi.h>
+
 #include <atomic>
 #include <chrono>
+#include <cstring>
+#include <map>
 #include <string>
 #include <thread>
 
@@ -30,11 +34,60 @@ void detour(void* self, int a, int b, int c, int d, int e, int f, int g)
     g_original(self, a, b, c, d, e, f, g);
 }
 
+// The game passes a static MouseDevice to feed: callers load it with
+// `lea rcx, [rip+disp]` shortly before `call feed`. Take the address most callers use.
+void* find_static_instance(uint8_t* feed_addr)
+{
+    HMODULE mod = GetModuleHandleA("Minecraft.Windows.exe");
+    MODULEINFO info{};
+    if (!mod || !GetModuleInformation(GetCurrentProcess(), mod, &info, sizeof(info)))
+        return nullptr;
+    auto* base = static_cast<uint8_t*>(info.lpBaseOfDll);
+    size_t size = info.SizeOfImage;
+    std::map<uint8_t*, int> votes;
+    for (size_t i = 0x40; i + 5 <= size; ++i)
+    {
+        if (base[i] != 0xE8)
+            continue;
+        int32_t rel;
+        std::memcpy(&rel, base + i + 1, 4);
+        if (base + i + 5 + rel != feed_addr)
+            continue;
+        for (size_t j = i - 7; j >= i - 0x40; --j)
+        {
+            if (base[j] == 0x48 && base[j + 1] == 0x8D && base[j + 2] == 0x0D)
+            {
+                int32_t disp;
+                std::memcpy(&disp, base + j + 3, 4);
+                uint8_t* target = base + j + 7 + disp;
+                if (target >= base && target < base + size)
+                    ++votes[target];
+                break;
+            }
+        }
+    }
+    void* best = nullptr;
+    int best_votes = 0;
+    for (auto& [target, count] : votes)
+    {
+        if (count > best_votes)
+        {
+            best = target;
+            best_votes = count;
+        }
+    }
+    return best;
+}
+
 bool try_hook()
 {
     uint8_t* addr = find_pattern("Minecraft.Windows.exe", g_signature.c_str());
     if (!addr)
         return false;
+    void* instance = find_static_instance(addr);
+    void* expected = nullptr;
+    if (instance)
+        g_self.compare_exchange_strong(expected, instance);
     MH_STATUS init = MH_Initialize();
     if (init != MH_OK && init != MH_ERROR_ALREADY_INITIALIZED)
         return false;
@@ -61,7 +114,7 @@ void init(const char* signature)
         return;
     // The game lazily decrypts MouseDevice::feed when it first runs, so the
     // signature is absent at startup. Retry in the background until it appears,
-    // then hook it; the hook captures the MouseDevice instance on the next call.
+    // then hook it and resolve the static MouseDevice its callers pass in.
     std::thread([] {
         for (int i = 0; i < 1200 && !g_hooked.load(); ++i)
         {
