@@ -1,10 +1,11 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
-// Logs every game packet the client sends or receives as plaintext bytes
-// (varuint header plus payload) to a .bmpl file that tools/packetlog decodes.
-// In a local world the in-process server's packets are logged too.
+// AI tools over the packet capture of spyglass (github.com/EndstoneMC/spyglass), which
+// runs in the same game process. They read its live capture files through
+// tools/packetlog/packetlog.exe, which also decodes fields with gophertunnel.
 namespace packets {
 
 struct Result {
@@ -12,24 +13,11 @@ struct Result {
     std::string text;
 };
 
-// Install the hooks in the background once the exact supported game build is confirmed.
-void init();
+// Arguments are passed through to packetlog.exe as -flag value pairs.
+Result run(const std::string& command, const std::vector<std::pair<std::string, std::string>>& flags);
 
-Result start();
-Result stop();
-Result status();
-
-struct DecodeOptions {
-    int skip = 0;
-    int limit = 100;
-    std::string name;
-    std::string dir;
-    int max_json = 2000;
-    std::string file;
-};
-Result decode(const DecodeOptions& options);
-
-// Rebuild resource packs carried by ResourcePackChunkData packets into out_dir.
-Result extract_packs(const std::string& file, const std::string& out_dir);
+// Named marks: start records the newest packet number, stop returns the packets after it.
+Result session_start(const std::string& name);
+Result session_stop(const std::string& name, std::vector<std::pair<std::string, std::string>> flags);
 
 } // namespace packets

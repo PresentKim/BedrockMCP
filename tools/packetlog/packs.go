@@ -22,7 +22,13 @@ type download struct {
 	chunks map[uint32][]byte
 }
 
-func runPacks(path, outDir string) error {
+var packIDs = map[int16]bool{
+	int16(packet.IDResourcePacksInfo):     true,
+	int16(packet.IDResourcePackDataInfo):  true,
+	int16(packet.IDResourcePackChunkData): true,
+}
+
+func runPacks(c *capture, from, to uint64, outDir string) error {
 	d := newDecoder()
 	keys := map[string]string{}
 	downloads := map[string]*download{}
@@ -34,8 +40,15 @@ func runPacks(path, outDir string) error {
 		downloads[id] = dl
 		return dl
 	}
-	err := readLog(path, func(rec record) bool {
-		pk := d.decode(rec)
+	err := c.entries(from, to, func(e entry) bool {
+		if e.outbound() || !packIDs[e.ID] {
+			return true
+		}
+		b, err := c.read(e)
+		if err != nil {
+			return true
+		}
+		pk := d.decode(e.ID, b.Body, false)
 		if pk.Err != nil {
 			return true
 		}
@@ -57,7 +70,7 @@ func runPacks(path, outDir string) error {
 		return err
 	}
 	if len(downloads) == 0 {
-		fmt.Println("no ResourcePackChunkData in the log")
+		fmt.Println("no ResourcePackChunkData in the capture; check PacksToDownload in the client's ResourcePackClientResponse to see which packs it asked for")
 		return nil
 	}
 	ids := make([]string, 0, len(downloads))

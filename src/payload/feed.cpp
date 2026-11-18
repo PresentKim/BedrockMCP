@@ -79,15 +79,40 @@ void* find_static_instance(uint8_t* feed_addr)
     return best;
 }
 
+constexpr size_t kPatchedPrologue = 16;
+
+// Another tool (spyglass) may already have replaced feed's first bytes with a jump.
+uint8_t* find_patched_feed()
+{
+    size_t pos = 0;
+    for (size_t token = 0; token < kPatchedPrologue && pos != std::string::npos; ++token)
+        pos = g_signature.find_first_not_of(' ', g_signature.find(' ', pos));
+    if (pos == std::string::npos)
+        return nullptr;
+    uint8_t* tail = find_pattern("Minecraft.Windows.exe", g_signature.c_str() + pos);
+    if (!tail)
+        return nullptr;
+    uint8_t* start = tail - kPatchedPrologue;
+    const bool jumps = start[0] == 0xE9 || (start[0] == 0xFF && start[1] == 0x25);
+    return jumps ? start : nullptr;
+}
+
 bool try_hook()
 {
     uint8_t* addr = find_pattern("Minecraft.Windows.exe", g_signature.c_str());
+    if (!addr)
+        addr = find_patched_feed();
     if (!addr)
         return false;
     void* instance = find_static_instance(addr);
     void* expected = nullptr;
     if (instance)
+    {
         g_self.compare_exchange_strong(expected, instance);
+        g_original = reinterpret_cast<FeedFn>(addr);
+        g_hooked.store(true);
+        return true;
+    }
     MH_STATUS init = MH_Initialize();
     if (init != MH_OK && init != MH_ERROR_ALREADY_INITIALIZED)
         return false;
@@ -114,7 +139,8 @@ void init(const char* signature)
         return;
     // The game lazily decrypts MouseDevice::feed when it first runs, so the
     // signature is absent at startup. Retry in the background until it appears,
-    // then hook it and resolve the static MouseDevice its callers pass in.
+    // then resolve the static MouseDevice its callers pass in. feed is hooked only
+    // when that fails, so other tools that hook feed (spyglass) still find its prologue.
     std::thread([] {
         for (int i = 0; i < 1200 && !g_hooked.load(); ++i)
         {

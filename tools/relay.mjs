@@ -1,6 +1,6 @@
 import { spawn, execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +20,17 @@ const dataDir = join(process.env.LOCALAPPDATA ?? here, 'BedrockMCP');
 mkdirSync(dataDir, { recursive: true });
 const logFile = join(dataDir, 'relay.log');
 const toolsFile = join(dataDir, 'tools.json');
+const spyglassDir = join(here, '..', 'spyglass');
+
+function findSpyglass() {
+  if (process.env.BEDROCK_SPYGLASS_DLL) return resolve(process.env.BEDROCK_SPYGLASS_DLL);
+  try {
+    const name = readdirSync(spyglassDir).filter((file) => /^spyglass-.*\.dll$/i.test(file)).sort().pop();
+    return name ? join(spyglassDir, name) : '';
+  } catch {
+    return '';
+  }
+}
 
 const log = (message) => appendFileSync(logFile, `${new Date().toISOString()} ${message}\n`);
 
@@ -67,10 +78,10 @@ function findGamePid() {
   });
 }
 
-function runInjector() {
+function runInjector(dll) {
   return new Promise((done) => {
     if (!existsSync(INJECTOR)) return done({ code: -1, output: `injector not found at ${INJECTOR}` });
-    execFile(INJECTOR, [], { windowsHide: true, timeout: 60000 }, (err, stdout, stderr) => {
+    execFile(INJECTOR, dll ? [dll] : [], { windowsHide: true, timeout: 60000 }, (err, stdout, stderr) => {
       done({ code: err ? (err.code ?? 1) : 0, output: `${stdout}${stderr}`.trim() });
     });
   });
@@ -156,6 +167,11 @@ async function tick() {
       return;
     }
     state.injectedPid = pid;
+    const spyglassDll = findSpyglass();
+    if (spyglassDll && existsSync(spyglassDll)) {
+      const spyglass = await runInjector(spyglassDll);
+      log(`spyglass inject for pid ${pid}: exit ${spyglass.code}: ${spyglass.output.replace(/\s+/g, ' ')}`);
+    }
   }
   if (!state.upstreamOk) {
     state.phase = 'connecting';

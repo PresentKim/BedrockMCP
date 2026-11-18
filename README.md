@@ -8,7 +8,7 @@ An MCP server implementation for Minecraft (Windows), Inspired by [mcpelauncher-
 - Keyboard input through PostMessage for menus and in-world movement.
 - Legacy JSON UI tooling from [Conduit Client](https://github.com/Conduit-BE/Client) (exact builds 1.26.60.5, 1.26.62.1, 1.26.63.1 and 1.26.65.1): reload the UI definitions (`ui_reload`, or Ctrl+R in game), read the active screen's control, binding and factory counts (`ui_screen`), its control tree with rects in client pixels (`ui_tree`), and the control at a point (`ui_at`). Ore UI screens have no control tree. In game, F3 toggles Conduit's diagnostics panel (screen name, control, binding and factory counts, FPS) and F5 toggles the hover inspector (name, type, rect and parents of the control under the cursor); `ui_overlay` toggles both from MCP.
 - JSON UI helpers on top of the control tree: `ui_click` (click a control by name), `wait_for_screen`, `ui_screenshot` (numbered boxes over controls plus a legend), a before and after diff in `ui_reload`, automatic reload when a `ui/*.json` file changes (`ui_auto_reload`; `ui_auto_reload` and `ui_watch_dirs` in `config.json`), and `content_log` (the game's newest `ContentLog*.txt`, whose new lines are also appended to `ui_reload`).
-- Packet capture (exact build 1.26.65.1): `packet_log` records every packet as plaintext bytes after decryption and decompression, for remote servers and local worlds (both the client's and the in-process server's side). `packet_decode` decodes the log with gophertunnel and `packet_packs` rebuilds resource packs a server sent; both run `tools/packetlog/packetlog.exe` (build it with `go build` in that folder). The log includes the login packet with your identity tokens, so do not share it.
+- Packet tools over [spyglass](https://github.com/EndstoneMC/spyglass), which captures every packet inside the client (F12 overlay): `packet_info`, `packet_find` (filters by name, id, direction, client decode failures, packet number range), `packet_get` (fields, client error with call stack, hex), `packet_wait` (block until a matching packet arrives), `packet_session` (packets between a start and a stop call), `packet_failures` and `packet_packs` (rebuild resource packs a server sent). They read spyglass's live capture in `%TEMP%\spyglass_*.cap` with `tools/packetlog/packetlog.exe`, which decodes fields with gophertunnel; build it with `go build` in that folder. A capture includes the login packet with your identity tokens, so do not share it.
 - Tools: `screenshot`, `state`, `move`, `click`, `look`, `scroll` (menus only, not hotbar), `key`, `hold_key` (hold a key for a duration), `type`, `chat`, `batch` (several actions in one call for precise timing, e.g. double-tap to fly or holding two keys at once), `wait`, `focus`, `open_uri`, `add_server` (add a server to the Servers tab), `connect_server` (join a server directly, no menu navigation), `ping`.
 
 ## Setup
@@ -61,7 +61,7 @@ If `auth_token` is set in `config.json`, pass it as a Bearer header:
 node tools\relay.mjs
 ```
 
-Point the client at `http://127.0.0.1:18081/mcp` instead of port 18080. The relay looks for the injector in `build\relwithdebinfo\`; set `BEDROCK_MCP_INJECTOR` to use another one. It does not forward `auth_token`. Logs and the cached tool list are in `%LOCALAPPDATA%\BedrockMCP\`.
+Point the client at `http://127.0.0.1:18081/mcp` instead of port 18080. After injecting the payload, the relay also injects the last `spyglass-*.dll` (by name) in the repository's `spyglass\` folder (git-ignored) when there is one (set `BEDROCK_SPYGLASS_DLL` to use another file). Copy the DLL from a spyglass release that matches the game there, for example `spyglass-0.4.0-1.26.60.dll` for 1.26.60 to 1.26.65. The game failed to load the DLL from a folder under `%LOCALAPPDATA%`, so keep it outside AppData. The relay looks for the injector in `build\relwithdebinfo\`; set `BEDROCK_MCP_INJECTOR` to use another one. It does not forward `auth_token`. Logs and the cached tool list are in `%LOCALAPPDATA%\BedrockMCP\`.
 
 ## Notes
 
@@ -86,7 +86,7 @@ Build outputs are generated in `build\relwithdebinfo\`. Close Minecraft before r
 
 ## Credits
 
-* [spyglass](https://github.com/EndstoneMC/spyglass)
 * [Conduit Client](https://github.com/Conduit-BE/Client) (MIT), vendored in `third_party/conduit`
+* [spyglass](https://github.com/EndstoneMC/spyglass) (MIT), injected alongside the payload; `tools/packetlog` reads its capture format
 
 Built with [Claude Code](https://claude.ai/code)
