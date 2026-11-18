@@ -20,6 +20,7 @@
 #include "config.hpp"
 #include "game_window.hpp"
 #include "input.hpp"
+#include "packets.hpp"
 #include "ui.hpp"
 
 namespace {
@@ -515,6 +516,46 @@ void register_tools(fastmcpp::tools::ToolManager& tm)
                               return ui_json(ui::auto_reload(tristate(args, "enabled")));
                           }});
 
+    auto packet_json = [](const packets::Result& r) { return r.ok ? text_result(r.text) : error_result(r.text); };
+
+    tm.register_tool(Tool{
+        "packet_log",
+        object_schema({{"action", Json{{"type", "string"}, {"enum", Json::array({"start", "stop", "status"})}}}},
+                      Json::array({"action"})),
+        Json(),
+        [packet_json](const Json& args) {
+            const std::string action = args.value("action", std::string("status"));
+            if (action == "start")
+                return packet_json(packets::start());
+            if (action == "stop")
+                return packet_json(packets::stop());
+            return packet_json(packets::status());
+        }});
+
+    tm.register_tool(Tool{"packet_decode",
+                          object_schema({{"skip", num},
+                                         {"limit", num},
+                                         {"name", str},
+                                         {"dir", Json{{"type", "string"}, {"enum", Json::array({"sent", "received"})}}},
+                                         {"max_json", num},
+                                         {"file", str}}),
+                          Json(), [packet_json](const Json& args) {
+                              packets::DecodeOptions options;
+                              options.skip = args.value("skip", options.skip);
+                              options.limit = args.value("limit", options.limit);
+                              options.name = args.value("name", std::string());
+                              options.dir = args.value("dir", std::string());
+                              options.max_json = args.value("max_json", options.max_json);
+                              options.file = args.value("file", std::string());
+                              return packet_json(packets::decode(options));
+                          }});
+
+    tm.register_tool(Tool{"packet_packs", object_schema({{"file", str}, {"out", str}}), Json(),
+                          [packet_json](const Json& args) {
+                              return packet_json(packets::extract_packs(args.value("file", std::string()),
+                                                                        args.value("out", std::string())));
+                          }});
+
     tm.register_tool(Tool{"content_log", object_schema({{"lines", num}, {"filter", str}}), Json(),
                           [ui_json](const Json& args) {
                               return ui_json(ui::content_log(args.value("lines", 40),
@@ -591,6 +632,21 @@ std::unordered_map<std::string, std::string> tool_descriptions()
         {"ui_auto_reload", "Report or set ('enabled') automatic JSON UI reload when a ui/*.json file under the "
                            "watched folders changes (default: the game's Users folder; config.json "
                            "ui_watch_dirs overrides it). Returns the last automatic reload result."},
+        {"packet_log", "Start, stop or report logging of every game packet (exact build 1.26.65.1). Each packet "
+                       "is stored as plaintext bytes (varuint header plus payload, after decryption and "
+                       "decompression) with time, direction and side, in %LOCALAPPDATA%\\BedrockMCP\\packets\\"
+                       "*.bmpl. Covers remote servers (BDS, Dragonfly, any server) and local worlds, where the "
+                       "in-process server's packets are logged as side 'server'. Read it with packet_decode."},
+        {"packet_decode", "Decode the current (or last, or 'file') packet log with gophertunnel: one line per "
+                          "packet with sequence number, time, side (client/server NetworkSystem), sent/received, "
+                          "packet name, id, size and the fields as JSON. 'skip' (sequence number to start after), "
+                          "'limit' (default 100), 'name' (comma-separated name substrings, e.g. 'Text,"
+                          "ResourcePack'), 'dir', 'max_json' (default 2000 chars, 0 for all). Packets gophertunnel "
+                          "cannot decode show decode_error; unread_bytes means fields gophertunnel does not know."},
+        {"packet_packs", "Rebuild the resource packs a server sent (ResourcePackDataInfo and "
+                         "ResourcePackChunkData) from the current or last packet log into zips and extracted "
+                         "folders (default %LOCALAPPDATA%\\BedrockMCP\\packs\\<log name>). Uses the content key "
+                         "from ResourcePacksInfo to decrypt encrypted packs (decryption is untested)."},
         {"content_log", "Last 'lines' (default 40, max 500) lines of the game's newest content log "
                         "(%APPDATA%\\Minecraft Bedrock\\logs\\ContentLog*.txt), optionally only lines "
                         "containing 'filter' (e.g. '[UI]', 'error')."},
@@ -656,6 +712,7 @@ DWORD WINAPI start_server(LPVOID)
     std::thread(input_worker).detach();
     input::init_feed(config::feed_signature().c_str());
     ui::init();
+    packets::init();
     std::string mode = config::input_mode();
     input::set_default_method(mode == "postmessage" ? input::Method::Post
                               : mode == "feed"       ? input::Method::Feed

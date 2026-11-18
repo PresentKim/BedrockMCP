@@ -49,6 +49,7 @@ add_library(bedrock_mcp SHARED
     src/payload/capture.cpp
     src/payload/swapchain_capture.cpp
     src/payload/ui.cpp
+    src/payload/packets.cpp
 )
 target_link_libraries(bedrock_mcp PRIVATE
     conduit
