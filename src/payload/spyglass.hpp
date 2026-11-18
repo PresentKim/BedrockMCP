@@ -11,7 +11,8 @@ struct Result {
     std::string text;
 };
 
-// Hide the overlay once spyglass has loaded, when start_hidden is set.
+// Once spyglass has loaded: stop its eager field decoding, which crashed 1.26.65.1, and hide
+// the overlay when start_hidden is set.
 void init(bool start_hidden);
 
 // visible: -1 reports the state, 0 hides, 1 shows.

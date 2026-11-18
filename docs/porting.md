@@ -88,6 +88,7 @@ $util = "C:\Program Files (x86)\LLVM\bin\llvm-pdbutil.exe"
 ```
 
 - `getInstance` is printed as `addr = 0001:<offset>`; its RVA is the `.text` virtual address (`0x1000`) plus that offset. For v0.4.0 it is `0x87810`.
+- `spyglass::decode_fields(Packet&, int)` (search the publics for `decode_fields@spyglass`; `0x91f10` in v0.4.0) is hooked to return a null JSON, because the 1.26.60 build crashed 1.26.65.1 inside it (`entt::meta_type::from_void`) while a server sent its resource pack list. Find the crashing function from the Windows Application log (faulting module and offset) with `llvm-symbolizer --obj=<dll> --relative-address <offset>`; it reads the PDB next to the DLL.
 - The `visible_` member line gives its offset in `View` (3128 for v0.4.0).
 - Take the PE `TimeDateStamp` and `SizeOfImage` of the DLL and the first 10 bytes at the `getInstance` RVA; the payload only writes when all three match.
 
