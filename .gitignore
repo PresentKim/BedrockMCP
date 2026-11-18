@@ -3,6 +3,7 @@ dist/
 cmake-build-*/
 .idea/
 *.user
+tools/packetlog/packetlog.exe
 
 # Live config (generated next to the DLL); keep config.example.json
 config.json
