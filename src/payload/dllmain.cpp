@@ -588,9 +588,10 @@ void register_tools(fastmcpp::tools::ToolManager& tm)
     tm.register_tool(Tool{"packet_failures", object_schema(), Json(),
                           [packet_json](const Json&) { return packet_json(packets::run("failures", {})); }});
 
-    tm.register_tool(Tool{"packet_packs", object_schema({{"from", num}, {"to", num}, {"out", str}}), Json(),
+    tm.register_tool(Tool{"packet_packs",
+                          object_schema({{"from", num}, {"to", num}, {"out", str}, {"download", boolean_prop}}), Json(),
                           [packet_json, flags_of](const Json& args) {
-                              auto flags = flags_of(args, {"from", "to", "out"});
+                              auto flags = flags_of(args, {"from", "to", "out", "download"});
                               if (!args.contains("out"))
                               {
                                   wchar_t base[MAX_PATH] = {};
@@ -714,7 +715,9 @@ std::unordered_map<std::string, std::string> tool_descriptions()
         {"packet_packs", "Rebuild the resource packs a server sent (ResourcePackDataInfo and ResourcePackChunkData "
                          "in the capture, optionally between 'from' and 'to') into zips and extracted folders "
                          "under 'out' (default %LOCALAPPDATA%\\BedrockMCP\\packs\\<time>). Uses the content key "
-                         "from ResourcePacksInfo for encrypted packs (decryption is untested). spyglass must be "
+                         "from ResourcePacksInfo for encrypted packs (decryption is untested). Packs a server offers "
+                         "by DownloadURL (CDN) never travel as packets; they are listed, and fetched from that URL "
+                         "only with 'download' true (the URLs are signed and expire). spyglass must be "
                          "injected before joining the server, which the relay does when it injects the payload."},
         {"content_log", "Last 'lines' (default 40, max 500) lines of the game's newest content log "
                         "(%APPDATA%\\Minecraft Bedrock\\logs\\ContentLog*.txt), optionally only lines "

@@ -8,10 +8,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
@@ -28,9 +30,15 @@ var packIDs = map[int16]bool{
 	int16(packet.IDResourcePackChunkData): true,
 }
 
-func runPacks(c *capture, from, to uint64, outDir string) error {
+type remotePack struct {
+	id, url, key string
+	size         uint64
+}
+
+func runPacks(c *capture, from, to uint64, outDir string, fetch bool) error {
 	d := newDecoder()
 	keys := map[string]string{}
+	var remote []remotePack
 	downloads := map[string]*download{}
 	get := func(id string) *download {
 		if dl, ok := downloads[id]; ok {
@@ -58,6 +66,9 @@ func runPacks(c *capture, from, to uint64, outDir string) error {
 				if tp.ContentKey != "" {
 					keys[tp.UUID.String()] = tp.ContentKey
 				}
+				if tp.DownloadURL != "" {
+					remote = append(remote, remotePack{id: tp.UUID.String() + "_" + tp.Version, url: tp.DownloadURL, key: tp.ContentKey, size: tp.Size})
+				}
 			}
 		case *packet.ResourcePackDataInfo:
 			get(p.UUID).info = p
@@ -69,10 +80,6 @@ func runPacks(c *capture, from, to uint64, outDir string) error {
 	if err != nil {
 		return err
 	}
-	if len(downloads) == 0 {
-		fmt.Println("no ResourcePackChunkData in the capture; check PacksToDownload in the client's ResourcePackClientResponse to see which packs it asked for")
-		return nil
-	}
 	ids := make([]string, 0, len(downloads))
 	for id := range downloads {
 		ids = append(ids, id)
@@ -80,6 +87,25 @@ func runPacks(c *capture, from, to uint64, outDir string) error {
 	sort.Strings(ids)
 	for _, id := range ids {
 		fmt.Println(savePack(downloads[id], keys[strings.SplitN(id, "_", 2)[0]], outDir))
+	}
+	for _, rp := range remote {
+		if _, captured := downloads[rp.id]; captured {
+			continue
+		}
+		status := fmt.Sprintf("%s: offered by URL (%d bytes)", rp.id, rp.size)
+		if !fetch {
+			fmt.Println(status + "; not fetched, pass download to fetch it from the server's CDN")
+			continue
+		}
+		data, err := fetchPack(rp.url)
+		if err != nil {
+			fmt.Println(status + "; download failed: " + err.Error())
+			continue
+		}
+		fmt.Println(storePack(sanitize(rp.id), data, rp.key, outDir, status+fmt.Sprintf("; downloaded %d bytes", len(data))))
+	}
+	if len(downloads) == 0 && len(remote) == 0 {
+		fmt.Println("no resource pack data or download URLs in the capture; check PacksToDownload in the client's ResourcePackClientResponse to see which packs it asked for")
 	}
 	return nil
 }
@@ -102,15 +128,19 @@ func savePack(dl *download, key, outDir string) string {
 			status += " INCOMPLETE"
 		}
 	}
+	return storePack(name, data.Bytes(), key, outDir, status)
+}
+
+func storePack(name string, data []byte, key, outDir, status string) string {
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return status + "; " + err.Error()
 	}
 	archive := filepath.Join(outDir, name+".zip")
-	if err := os.WriteFile(archive, data.Bytes(), 0o644); err != nil {
+	if err := os.WriteFile(archive, data, 0o644); err != nil {
 		return status + "; " + err.Error()
 	}
 	status += "; saved " + archive
-	files, err := extract(data.Bytes(), filepath.Join(outDir, name), key)
+	files, err := extract(data, filepath.Join(outDir, name), key)
 	if err != nil {
 		return status + "; extract: " + err.Error()
 	}
@@ -119,6 +149,19 @@ func savePack(dl *download, key, outDir string) string {
 		status += " (decrypted with the content key from ResourcePacksInfo)"
 	}
 	return status
+}
+
+func fetchPack(url string) ([]byte, error) {
+	client := &http.Client{Timeout: 10 * time.Minute}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %s", resp.Status)
+	}
+	return io.ReadAll(resp.Body)
 }
 
 func extract(data []byte, dir, key string) (int, error) {

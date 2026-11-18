@@ -143,7 +143,7 @@ func TestReassemblesResourcePack(t *testing.T) {
 		{pk: &packet.ResourcePackChunkData{UUID: id, ChunkIndex: 0, Data: data[:half]}},
 	})
 	out := t.TempDir()
-	if err := runPacks(c, 0, 0, out); err != nil {
+	if err := runPacks(c, 0, 0, out, false); err != nil {
 		t.Fatal(err)
 	}
 	manifest, err := os.ReadFile(filepath.Join(out, id, "manifest.json"))

@@ -30,6 +30,7 @@ func main() {
 	after := fs.Int64("after", -1, "wait: packet number to start after, default the current newest")
 	timeout := fs.Int("timeout-ms", 10000, "wait: how long to wait")
 	out := fs.String("out", "", "packs: output directory")
+	download := fs.Bool("download", false, "packs: also fetch packs the server offered by DownloadURL")
 	_ = fs.Parse(os.Args[2:])
 
 	c, err := findCapture(*path)
@@ -56,7 +57,7 @@ func main() {
 		if *out == "" {
 			exit(fmt.Errorf("packs needs -out"))
 		}
-		exit(runPacks(c, *from, *to, *out))
+		exit(runPacks(c, *from, *to, *out, *download))
 	default:
 		usage()
 	}
