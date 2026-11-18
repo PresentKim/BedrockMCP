@@ -50,6 +50,7 @@ add_library(bedrock_mcp SHARED
     src/payload/swapchain_capture.cpp
     src/payload/ui.cpp
     src/payload/packets.cpp
+    src/payload/spyglass.cpp
 )
 target_link_libraries(bedrock_mcp PRIVATE
     conduit

@@ -31,6 +31,7 @@ const char* kDefaultFeedSig =
     "BC 24 B0 00 00 00 0F B6 84 24 C8 00 00 00";
 std::string g_feed_signature = kDefaultFeedSig;
 bool g_ui_auto_reload = true;
+bool g_spyglass_start_hidden = true;
 std::vector<std::wstring> g_ui_watch_dirs;
 
 // Vanilla Bedrock defaults, used only when options.txt cannot be read.
@@ -130,7 +131,8 @@ void load()
            {"options_path", ""},
            {"keybind_overrides", Json::object()},
            {"ui_auto_reload", true},
-           {"ui_watch_dirs", Json::array()}};
+           {"ui_watch_dirs", Json::array()},
+           {"spyglass_start_hidden", true}};
 
     fs::path path = config_path();
     std::error_code ec;
@@ -165,6 +167,7 @@ void load()
                 g_overrides[action] = key.get<std::string>();
 
     g_ui_auto_reload = j.value("ui_auto_reload", true);
+    g_spyglass_start_hidden = j.value("spyglass_start_hidden", true);
     g_ui_watch_dirs.clear();
     if (j["ui_watch_dirs"].is_array())
         for (const auto& dir : j["ui_watch_dirs"])
@@ -217,6 +220,11 @@ std::string feed_signature()
 bool ui_auto_reload()
 {
     return g_ui_auto_reload;
+}
+
+bool spyglass_start_hidden()
+{
+    return g_spyglass_start_hidden;
 }
 
 std::vector<std::wstring> ui_watch_dirs()

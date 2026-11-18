@@ -24,6 +24,7 @@
 #include "game_window.hpp"
 #include "input.hpp"
 #include "packets.hpp"
+#include "spyglass.hpp"
 #include "ui.hpp"
 
 namespace {
@@ -541,6 +542,15 @@ void register_tools(fastmcpp::tools::ToolManager& tm)
     Json filter_props{{"name", str},   {"id", str},     {"dir", dir_prop}, {"failed", boolean_prop},
                       {"unread", boolean_prop}, {"from", num}, {"to", num}};
 
+    tm.register_tool(Tool{"spyglass_overlay", object_schema({{"visible", boolean_prop}}), Json(),
+                          [](const Json& args) -> Json {
+                              int visible = -1;
+                              if (args.contains("visible") && args["visible"].is_boolean())
+                                  visible = args["visible"].get<bool>() ? 1 : 0;
+                              auto r = spyglass_control::overlay(visible);
+                              return r.ok ? text_result(r.text) : error_result(r.text);
+                          }});
+
     tm.register_tool(Tool{"packet_info", object_schema(), Json(),
                           [packet_json](const Json&) { return packet_json(packets::run("info", {})); }});
 
@@ -684,6 +694,10 @@ std::unordered_map<std::string, std::string> tool_descriptions()
         {"ui_auto_reload", "Report or set ('enabled') automatic JSON UI reload when a ui/*.json file under the "
                            "watched folders changes (default: the game's Users folder; config.json "
                            "ui_watch_dirs overrides it). Returns the last automatic reload result."},
+        {"spyglass_overlay", "Show ('visible' true) or hide ('visible' false) the spyglass packet overlay in "
+                             "game, or report its state when 'visible' is omitted. The payload hides it once "
+                             "spyglass loads unless config.json sets spyglass_start_hidden to false; F12 in game "
+                             "toggles it. Capture keeps running while it is hidden."},
         {"packet_info", "Summary of the live spyglass packet capture (spyglass is injected with the payload and "
                         "records every packet the game writes or reads, including the in-process server's in a "
                         "local world): packet count, packets the client failed to decode, and counts per "
@@ -784,6 +798,7 @@ DWORD WINAPI start_server(LPVOID)
     std::thread(input_worker).detach();
     input::init_feed(config::feed_signature().c_str());
     ui::init();
+    spyglass_control::init(config::spyglass_start_hidden());
     std::string mode = config::input_mode();
     input::set_default_method(mode == "postmessage" ? input::Method::Post
                               : mode == "feed"       ? input::Method::Feed

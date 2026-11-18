@@ -31,4 +31,7 @@ bool ui_auto_reload();
 // Directories to watch; empty means the game's Users folder, limited to resource packs.
 std::vector<std::wstring> ui_watch_dirs();
 
+// Hide the spyglass overlay after it loads (it opens by default); F12 shows it.
+bool spyglass_start_hidden();
+
 } // namespace config
