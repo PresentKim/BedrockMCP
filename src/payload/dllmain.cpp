@@ -23,6 +23,8 @@
 #include "config.hpp"
 #include "game_window.hpp"
 #include "input.hpp"
+#include "chat.hpp"
+#include "options.hpp"
 #include "packets.hpp"
 #include "spyglass.hpp"
 #include "ui.hpp"
@@ -542,6 +544,41 @@ void register_tools(fastmcpp::tools::ToolManager& tm)
     Json filter_props{{"name", str},   {"id", str},     {"dir", dir_prop}, {"failed", boolean_prop},
                       {"unread", boolean_prop}, {"from", num}, {"to", num}};
 
+    tm.register_tool(Tool{"options_get",
+                          object_schema({{"filter", str},
+                                         {"limit", num},
+                                         {"source", Json{{"type", "string"}, {"enum", Json::array({"live", "file"})}}}}),
+                          Json(), [](const Json& args) -> Json {
+                              const std::string filter = args.value("filter", std::string());
+                              const int limit = args.value("limit", 300);
+                              if (args.value("source", std::string("live")) == "live")
+                              {
+                                  auto live = options::live(filter, limit);
+                                  if (live.ok)
+                                      return text_result(live.text);
+                                  auto file = options::get(filter, limit);
+                                  return file.ok ? text_result("live options unavailable (" + live.text +
+                                                               "); from the file instead:\n" + file.text)
+                                                 : error_result(live.text + "; " + file.text);
+                              }
+                              auto r = options::get(filter, limit);
+                              return r.ok ? text_result(r.text) : error_result(r.text);
+                          }});
+
+    tm.register_tool(Tool{"send_chat", object_schema({{"text", str}}, Json::array({"text"})), Json(),
+                          [](const Json& args) -> Json {
+                              auto r = chat::send(args.value("text", std::string()));
+                              return r.ok ? text_result(r.text) : error_result(r.text);
+                          }});
+
+    tm.register_tool(Tool{"options_set", object_schema({{"key", str}, {"value", str}}, Json::array({"key", "value"})),
+                          Json(), [](const Json& args) -> Json {
+                              const Json& v = args.value("value", Json(""));
+                              auto r = options::set(args.value("key", std::string()),
+                                                    v.is_string() ? v.get<std::string>() : v.dump());
+                              return r.ok ? text_result(r.text) : error_result(r.text);
+                          }});
+
     tm.register_tool(Tool{"spyglass_overlay", object_schema({{"visible", boolean_prop}}), Json(),
                           [](const Json& args) -> Json {
                               int visible = -1;
@@ -694,6 +731,22 @@ std::unordered_map<std::string, std::string> tool_descriptions()
         {"ui_auto_reload", "Report or set ('enabled') automatic JSON UI reload when a ui/*.json file under the "
                            "watched folders changes (default: the game's Users folder; config.json "
                            "ui_watch_dirs overrides it). Returns the last automatic reload result."},
+        {"options_get", "Game options by save name (the keys of options.txt, e.g. gfx_viewdistance, "
+                        "gfx_guiscale_offset, audio_main). 'source' live (default) reads the running game's option "
+                        "registry: value, type, range, and 'shared' when the option follows another profile's value; "
+                        "file reads options.txt, which also has keybinds (keyboard_type_0_key.*) that live does not "
+                        "list. 'filter' keeps keys containing any comma-separated term; 'limit' lines (default 300)."},
+        {"send_chat", "Send chat or run a command immediately, without opening the chat screen and without "
+                      "focus: 'text' starting with '/' runs as a command (e.g. '/time set day'), anything else is "
+                      "sent as a chat message. It calls the same functions the chat screen calls on Enter, from the "
+                      "game's own tick, so it needs a world or server to be open. Exact build 1.26.65.1; the "
+                      "keyboard-based 'chat' tool works on any build."},
+        {"options_set", "Set a game option by save name in the running game and save options.txt. 'value' is "
+                        "a string in the units options_get (source live) shows, which can differ from options.txt "
+                        "(gfx_viewdistance is chunks live, blocks in the file): bool 0/1, an integer or number "
+                        "inside the shown range (out-of-range values are refused), or text. Returns the value "
+                        "before and after. Keybinds and per-input-mode options are not settable. Exact build "
+                        "1.26.65.1."},
         {"spyglass_overlay", "Show ('visible' true) or hide ('visible' false) the spyglass packet overlay in "
                              "game, or report its state when 'visible' is omitted. The payload hides it once "
                              "spyglass loads unless config.json sets spyglass_start_hidden to false; F12 in game "
@@ -799,6 +852,8 @@ DWORD WINAPI start_server(LPVOID)
     input::init_feed(config::feed_signature().c_str());
     ui::init();
     spyglass_control::init(config::spyglass_start_hidden());
+    options::init();
+    chat::init();
     std::string mode = config::input_mode();
     input::set_default_method(mode == "postmessage" ? input::Method::Post
                               : mode == "feed"       ? input::Method::Feed

@@ -632,6 +632,11 @@ void init()
     std::thread(auto_reload_loop).detach();
 }
 
+bool on_ui_thread(std::function<void()> job)
+{
+    return run_on_ui_thread(std::move(job));
+}
+
 Result status()
 {
     std::lock_guard lock(g_backend_mutex);

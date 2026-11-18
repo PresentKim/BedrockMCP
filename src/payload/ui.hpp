@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <string>
 
 #include "capture.hpp"
@@ -19,6 +20,10 @@ struct Result {
 void init();
 
 Result status();
+
+// Run job on the game's UI thread during the next frame (waits up to 3 s for it to start).
+// Needs the Conduit frame hook, so it fails on game builds without a Conduit profile.
+bool on_ui_thread(std::function<void()> job);
 
 // With diff, compares the visible control tree before and after the reload.
 // Content log lines written during the reload are appended either way.

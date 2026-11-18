@@ -51,6 +51,8 @@ add_library(bedrock_mcp SHARED
     src/payload/ui.cpp
     src/payload/packets.cpp
     src/payload/spyglass.cpp
+    src/payload/options.cpp
+    src/payload/chat.cpp
 )
 target_link_libraries(bedrock_mcp PRIVATE
     conduit

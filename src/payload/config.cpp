@@ -32,6 +32,7 @@ const char* kDefaultFeedSig =
 std::string g_feed_signature = kDefaultFeedSig;
 bool g_ui_auto_reload = true;
 bool g_spyglass_start_hidden = true;
+std::string g_options_path;
 std::vector<std::wstring> g_ui_watch_dirs;
 
 // Vanilla Bedrock defaults, used only when options.txt cannot be read.
@@ -174,10 +175,15 @@ void load()
             if (dir.is_string())
                 g_ui_watch_dirs.push_back(fs::u8path(dir.get<std::string>()).wstring());
 
-    std::string configured = j.value("options_path", std::string());
-    fs::path options = configured.empty() ? auto_options_path() : fs::path(configured);
+    g_options_path = j.value("options_path", std::string());
+    fs::path options = game_options_path();
     if (!options.empty())
         parse_options(options);
+}
+
+fs::path game_options_path()
+{
+    return g_options_path.empty() ? auto_options_path() : fs::u8path(g_options_path);
 }
 
 std::string key_for(const std::string& action)

@@ -11,6 +11,32 @@ Keep a copy of each build's executable outside `%LOCALAPPDATA%` (for example `C:
 | spyglass packet capture | `spyglass/spyglass-<ver>-<client>.dll` | Which spyglass DLL supports the build |
 | spyglass overlay hide | `src/payload/spyglass.cpp` `kBuilds` | Offsets inside one spyglass DLL build |
 | Packet decoding | `tools/packetlog/go.mod` (gophertunnel), `capture.go` | Protocol version, spyglass capture format |
+| Live options (`options_get` live, `options_set`) | `src/payload/options.cpp` `k126651` | `OptionRegistry::get` RVA, registry and Option layouts |
+| Direct chat (`send_chat`) | `src/payload/chat.cpp` | Screen model tick, chat send and command RVAs, model offsets |
+
+## Live options
+
+The game keeps every option in an `OptionRegistry`, an array of `unique_ptr<Option>` at `registry+0x10` indexed by option id (`0x339` entries in 1.26.65.1; `isValidOption` and `_registerOption` both compare against that count). There is no map by save name, so the payload walks the array and compares each option's save name.
+
+How the 1.26.65.1 layout was found:
+
+1. Save names such as `gfx_viewdistance` are copied inline with `movups` in the registration function, so `lea` searches miss them; search RIP-relative references to the string data instead. They lead to the registration function (`0x5b0c2c0`) and to `_registerOption` (`0x5af8ba0`), which stores into the array.
+2. `OptionRegistry::get(out, id)` (`0x5af9150`) is a short function in the registry vtable at slots `+0x08` and `+0xd8`: `push rsi; sub rsp,20h; mov rsi,rdx; mov edx,r8d; call ...; mov [rsi],rax`. It returns through a hidden out pointer. The payload hooks it to capture the registry objects, because no global holds them; it picks the one whose path string at `registry+0x1a08` is the active `options.txt` (the game writes it with `/` separators).
+3. The Option classes have one vtable per type; find them from the `_purecall` slots of the base vtable. Slot `+0x20` is load from a `std::string const&` (it only reads and copies the string, so a DLL-owned string is safe).
+4. `Option+0x8` is the Impl: `+0x188` save name (`std::string`), `+0x1d4` type (0 bool, 2 float, 4 string, 5 int, 6 enum, 8 string list; 1 and 3 are per-input-mode and have an empty `+0x20`), `+0x238` override source (a shared option from another profile; follow it), `+0x260` a save-request functor whose second word (`+0x268`) is the owning registry.
+5. Values live in the Option itself: bool `+0x10`; float value `+0x18`, min `+0x10`, max `+0x14`; int and enum value `+0x18`, max `+0x10`, min `+0x14`; string `+0x10`.
+6. To save, call the registry vtable `+0x118` (`elevateSaveRequestMode`, argument 1) and `+0xa8` (`saveIfNeeded`), from the UI thread.
+
+The string loader neither clamps nor converts units: `gfx_viewdistance` is 46 chunks live and 736 blocks in `options.txt`, and loading `"736"` stored 736 chunks. `options_set` therefore checks numbers against the option's own range before loading. Keybinds are not options; they are `KeyboardRemappingLayout` objects at `registry+0x1ab8`.
+
+## Direct chat and commands
+
+The chat screen's Enter button (`button.send`) calls `ChatScreenController::_sendChatMessage` (`0x4ff5e00`), which branches on a leading `/`:
+
+- Chat: `MinecraftScreenModel::sendChatMessage(model, std::string const&)` (`0x2680900`). It copies the text into a `TextPacket` and sends it.
+- Command: `0x683060(std::string const& command, NotNullNonOwnerPtr<IClientInstance>)`, keeping the `/`. The pointer argument is passed by value (a 0x18-byte `{handle, control, instance}` the callee releases), so the payload copies `model+0x48..0x58` and increments the control block's use count at `+8` first, as the game's own two call sites do.
+
+Both must run on the UI thread with a live screen model. The payload hooks the screen model tick (`0x4d5c2e0`, `rcx` is the `ClientInstanceScreenModel`; `HudScreenController::tick` calls it every tick) and sends one queued message after the original returns. To find these again: start from the `button.send` name hash (`0x9c96df27`) handler, or from `ChatScreenController` code that compares the text with `"/cls"` (the dev-console check at controller `+0xdb3`); the command function then leads to `MinecraftCommands` and the `CommandRequestPacket` constructor (`0x4198950`, packet id `0x4d`).
 
 ## MouseDevice::feed
 

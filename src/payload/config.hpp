@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -33,5 +34,8 @@ std::vector<std::wstring> ui_watch_dirs();
 
 // Hide the spyglass overlay after it loads (it opens by default); F12 shows it.
 bool spyglass_start_hidden();
+
+// The game's options.txt: config options_path, else the most recently written one.
+std::filesystem::path game_options_path();
 
 } // namespace config
