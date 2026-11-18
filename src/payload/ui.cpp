@@ -17,7 +17,10 @@
 #include <thread>
 #include <vector>
 
+#include "core/logger.hpp"
 #include "experimental/legacy_reload.hpp"
+#include "minecraft/compatibility.hpp"
+#include "platform/windows/debug_overlay.hpp"
 
 #include "game_window.hpp"
 
@@ -84,7 +87,9 @@ bool run_on_ui_thread(std::function<void()> job)
     return true;
 }
 
-fs::path log_path()
+conduit::windows::DebugReloadStats g_overlay_stats;
+
+fs::path data_dir()
 {
     fs::path base;
     PWSTR p = nullptr;
@@ -94,7 +99,32 @@ fs::path log_path()
     fs::path dir = base / L"BedrockMCP";
     std::error_code ec;
     fs::create_directories(dir, ec);
-    return dir / L"conduit.log";
+    return dir;
+}
+
+void overlay_loop()
+{
+    const fs::path dir = data_dir();
+    try
+    {
+        static conduit::Logger logger(dir / L"overlay.log");
+        g_overlay_stats.diagnostics = &logger;
+        const fs::path disable = dir / L"DISABLE_OVERLAY";
+        conduit::windows::runDebugOverlay(disable.c_str(), g_overlay_stats);
+        logger.write("info", "overlay stopped");
+    }
+    catch (...)
+    {
+    }
+}
+
+std::unique_ptr<conduit::ReloadBackend> with_overlay(std::unique_ptr<conduit::ReloadBackend> backend)
+{
+    if (const auto* profile = conduit::minecraft::runningCompatibility())
+        g_overlay_stats.clientVersion = profile->build;
+    g_overlay_stats.screenMetrics = &cx::nativeScreenMetrics();
+    g_overlay_stats.inspectHoveredControl = &cx::inspectHoveredControl;
+    return conduit::windows::trackDebugReloads(std::move(backend), g_overlay_stats);
 }
 
 void set_install_status(std::string text)
@@ -105,16 +135,19 @@ void set_install_status(std::string text)
 
 void install_loop()
 {
-    const fs::path log = log_path();
+    const fs::path log = data_dir() / L"conduit.log";
     for (int attempt = 0; attempt < 600; ++attempt)
     {
         try
         {
-            auto backend = cx::makeLegacyReloadBackend(log, true);
+            auto backend = with_overlay(cx::makeLegacyReloadBackend(log, true));
             cx::setFrameObserver(&on_frame);
-            std::lock_guard lock(g_backend_mutex);
-            g_backend = std::move(backend);
-            g_install_status = "installed";
+            {
+                std::lock_guard lock(g_backend_mutex);
+                g_backend = std::move(backend);
+                g_install_status = "installed";
+            }
+            std::thread(overlay_loop).detach();
             return;
         }
         catch (const std::exception& error)

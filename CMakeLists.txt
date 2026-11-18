@@ -32,10 +32,12 @@ add_library(conduit STATIC
     third_party/conduit/src/core/logger.cpp
     third_party/conduit/src/minecraft/compatibility.cpp
     third_party/conduit/src/minecraft/version.cpp
+    third_party/conduit/src/platform/windows/debug_overlay.cpp
+    third_party/conduit/src/platform/windows/native_debug_renderer.cpp
 )
 target_include_directories(conduit PUBLIC third_party/conduit/src ${minhook_SOURCE_DIR}/include)
-target_link_libraries(conduit PUBLIC minhook version)
-target_compile_definitions(conduit PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_link_libraries(conduit PUBLIC minhook version d3d11 dxgi)
+target_compile_definitions(conduit PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX CONDUIT_DISPLAY_VERSION="v1.0.1")
 
 add_library(bedrock_mcp SHARED
     src/payload/dllmain.cpp
