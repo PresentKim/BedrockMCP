@@ -27,6 +27,16 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(minhook)
 
+add_library(conduit STATIC
+    third_party/conduit/src/experimental/legacy_reload.cpp
+    third_party/conduit/src/core/logger.cpp
+    third_party/conduit/src/minecraft/compatibility.cpp
+    third_party/conduit/src/minecraft/version.cpp
+)
+target_include_directories(conduit PUBLIC third_party/conduit/src ${minhook_SOURCE_DIR}/include)
+target_link_libraries(conduit PUBLIC minhook version)
+target_compile_definitions(conduit PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+
 add_library(bedrock_mcp SHARED
     src/payload/dllmain.cpp
     src/payload/config.cpp
@@ -36,8 +46,10 @@ add_library(bedrock_mcp SHARED
     src/payload/sigscan.cpp
     src/payload/capture.cpp
     src/payload/swapchain_capture.cpp
+    src/payload/ui.cpp
 )
 target_link_libraries(bedrock_mcp PRIVATE
+    conduit
     fastmcpp_core
     minhook
     d3d11 d3d12 dxgi windowscodecs runtimeobject

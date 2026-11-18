@@ -20,6 +20,7 @@
 #include "config.hpp"
 #include "game_window.hpp"
 #include "input.hpp"
+#include "ui.hpp"
 
 namespace {
 
@@ -429,6 +430,35 @@ void register_tools(fastmcpp::tools::ToolManager& tm)
                                       url_encode(host) + ":" + std::to_string(port));
         }});
 
+    auto ui_json = [](const ui::Result& r) { return r.ok ? text_result(r.text) : error_result(r.text); };
+
+    tm.register_tool(Tool{"ui_reload", object_schema(), Json(),
+                          [ui_json](const Json&) { return ui_json(ui::reload()); }});
+
+    tm.register_tool(Tool{"ui_screen", object_schema(), Json(),
+                          [ui_json](const Json&) { return ui_json(ui::screen()); }});
+
+    tm.register_tool(Tool{
+        "ui_tree",
+        object_schema({{"filter", str},
+                       {"max_depth", num},
+                       {"limit", num},
+                       {"include_hidden", Json{{"type", "boolean"}}}}),
+        Json(),
+        [ui_json](const Json& args) {
+            ui::TreeOptions options;
+            options.filter = args.value("filter", std::string());
+            options.max_depth = args.value("max_depth", options.max_depth);
+            options.limit = args.value("limit", options.limit);
+            options.include_hidden = args.value("include_hidden", false);
+            return ui_json(ui::tree(options));
+        }});
+
+    tm.register_tool(Tool{"ui_at", object_schema({{"x", num}, {"y", num}}, Json::array({"x", "y"})),
+                          Json(), [ui_json](const Json& args) {
+                              return ui_json(ui::at(args.value("x", 0), args.value("y", 0)));
+                          }});
+
     tm.register_tool(Tool{
         "connect_server", object_schema({{"host", str}, {"port", num}}, Json::array({"host"})),
         Json(),
@@ -447,8 +477,21 @@ std::unordered_map<std::string, std::string> tool_descriptions()
     return {
         {"ping", "Check that the MCP server inside Minecraft is alive"},
         {"state", "Report window title, client size, focus state, and feed_ready. "
-                  "feed_ready must be true before mouse (feed) works; it turns true after any "
-                  "in-world mouse motion (the game decrypts MouseDevice::feed on first use)."},
+                  "feed_ready must be true before mouse (feed) works; it turns true a moment after "
+                  "the game first runs MouseDevice::feed (the game decrypts it on first use)."},
+        {"ui_reload", "Reload the legacy JSON UI definitions from the active resource packs, the same as "
+                      "Ctrl+R in game (Conduit). Edit the pack's ui/*.json files first, then call this "
+                      "and check with screenshot. Ore UI screens are not affected."},
+        {"ui_screen", "Name of the active legacy JSON UI screen with its control, binding and factory "
+                      "counts (Conduit diagnostics). Fails on Ore UI screens."},
+        {"ui_tree", "Control tree of the active legacy JSON UI screen: name [type], rect in client "
+                    "pixels (x,y wxh, the same units as move/click), effective layer. 'filter' keeps "
+                    "controls whose name contains it and prints their full path; 'max_depth' (default "
+                    "64), 'limit' lines (default 400), 'include_hidden' (default false). Types are "
+                    "known only for controls created after the payload was injected; call ui_reload "
+                    "to rebuild them."},
+        {"ui_at", "The topmost visible legacy JSON UI control at client point (x,y) (the same pixels "
+                  "as move/click): name [type], rect, layer and the path from the screen root."},
         {"screenshot", "Capture the game's client area as a PNG, scaled to fit within width x height "
                        "(default 1280x720, keeps aspect, never upscales; use width:0,height:0 for full "
                        "size). Works without focus. The image is the client area (no title bar); the "
@@ -500,6 +543,7 @@ DWORD WINAPI start_server(LPVOID)
     config::load();
     std::thread(input_worker).detach();
     input::init_feed(config::feed_signature().c_str());
+    ui::init();
     std::string mode = config::input_mode();
     input::set_default_method(mode == "postmessage" ? input::Method::Post
                               : mode == "feed"       ? input::Method::Feed
