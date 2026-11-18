@@ -15,3 +15,4 @@ Local changes in `src/platform/windows/` and `src/core/debug_panel.hpp`:
 - The title logo hooks are removed from `native_debug_renderer.cpp` and `debug_overlay.cpp`.
 - `native_debug_renderer.cpp` flushes queued text whenever the game's text buffer is full, so a panel with more rows than free text slots is drawn in several flushes instead of being skipped.
 - Panel notices point to `overlay.log`.
+- The panel shows no Conduit title or version, so it is not mistaken for Conduit Client itself.

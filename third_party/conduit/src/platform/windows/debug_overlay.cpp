@@ -237,7 +237,6 @@ void runDebugOverlay(const wchar_t* disablePath, DebugReloadStats& stats, const 
                 const int count = std::snprintf(text+used, sizeof(text)-used, format, values...);
                 if (count > 0) used += std::min(static_cast<std::size_t>(count), sizeof(text)-used-1);
             };
-            append("\xc2\xa7" "b\xc2\xa7" "lConduit Client\xc2\xa7" "r\n\n");
             append("current screen:\n");
             append("  type: \"%s\"\n", screen[0] ? screen.data() : "Unavailable");
             append("  elements: %s\n", elements);
@@ -263,7 +262,6 @@ void runDebugOverlay(const wchar_t* disablePath, DebugReloadStats& stats, const 
             }
             append("\ngeneral:\n");
             append("  frames_per_second: %s\n", fps);
-            append("  conduit_version: %s\n", CONDUIT_DISPLAY_VERSION);
             append("  client_version: %.*s", static_cast<int>(stats.clientVersion.size()), stats.clientVersion.data());
             stats.panel.publish(text, true, stats.settings.uiScale, stats.settings.uiAlpha);
             refresh = now;

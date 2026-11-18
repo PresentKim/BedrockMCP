@@ -37,7 +37,7 @@ add_library(conduit STATIC
 )
 target_include_directories(conduit PUBLIC third_party/conduit/src ${minhook_SOURCE_DIR}/include)
 target_link_libraries(conduit PUBLIC minhook version d3d11 dxgi)
-target_compile_definitions(conduit PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX CONDUIT_DISPLAY_VERSION="v1.0.1")
+target_compile_definitions(conduit PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 
 add_library(bedrock_mcp SHARED
     src/payload/dllmain.cpp
