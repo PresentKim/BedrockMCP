@@ -50,6 +50,16 @@ If `auth_token` is set in `config.json`, pass it as a Bearer header:
 }
 ```
 
+### Always-on relay
+
+`tools/relay.mjs` (Node 18+) keeps an MCP endpoint up at `127.0.0.1:18081/mcp` whether or not the game is running. It launches Minecraft when a tool is called while the game is closed, injects the payload whenever a new game process appears, and forwards tool calls once the payload answers. Until then, a call waits up to 20 seconds and returns an error that says what is happening and when to call again. It also adds a `game_status` tool.
+
+```powershell
+node tools\relay.mjs
+```
+
+Point the client at `http://127.0.0.1:18081/mcp` instead of port 18080. The relay looks for the injector in `build\relwithdebinfo\`; set `BEDROCK_MCP_INJECTOR` to use another one. It does not forward `auth_token`. Logs and the cached tool list are in `%LOCALAPPDATA%\BedrockMCP\`.
+
 ## Notes
 
 * Both mouse and keyboard input work without window focus. However, single-player pauses when the window loses focus, so in-world play requires the window to be focused.
