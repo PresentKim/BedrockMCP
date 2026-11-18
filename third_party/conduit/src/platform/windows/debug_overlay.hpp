@@ -27,6 +27,11 @@ struct DebugReloadStats {
     Logger* diagnostics = nullptr; // Borrowed from the worker that runs this overlay.
     std::atomic<std::uint64_t> successes{0};
     std::atomic<std::int64_t> latencyMicros{-1};
+    // -1 leaves the state alone; 0 or 1 sets it. A panel opened this way stays visible without focus.
+    std::atomic<int> diagnosticsRequest{-1};
+    std::atomic<int> tooltipRequest{-1};
+    std::atomic<bool> diagnosticsShown{false};
+    std::atomic<bool> tooltipShown{false};
 };
 std::unique_ptr<ReloadBackend> trackDebugReloads(std::unique_ptr<ReloadBackend> backend,
                                                DebugReloadStats& stats);

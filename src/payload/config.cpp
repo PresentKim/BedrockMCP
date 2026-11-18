@@ -30,6 +30,8 @@ const char* kDefaultFeedSig =
     "48 89 CE 44 0F B7 A4 24 C0 00 00 00 44 0F B7 AC 24 B8 00 00 00 44 0F B7 "
     "BC 24 B0 00 00 00 0F B6 84 24 C8 00 00 00";
 std::string g_feed_signature = kDefaultFeedSig;
+bool g_ui_auto_reload = true;
+std::vector<std::wstring> g_ui_watch_dirs;
 
 // Vanilla Bedrock defaults, used only when options.txt cannot be read.
 const std::unordered_map<std::string, std::string>& fallback()
@@ -126,7 +128,9 @@ void load()
            {"input_mode", "feed"},
            {"feed_signature", kDefaultFeedSig},
            {"options_path", ""},
-           {"keybind_overrides", Json::object()}};
+           {"keybind_overrides", Json::object()},
+           {"ui_auto_reload", true},
+           {"ui_watch_dirs", Json::array()}};
 
     fs::path path = config_path();
     std::error_code ec;
@@ -159,6 +163,13 @@ void load()
         for (auto& [action, key] : j["keybind_overrides"].items())
             if (key.is_string())
                 g_overrides[action] = key.get<std::string>();
+
+    g_ui_auto_reload = j.value("ui_auto_reload", true);
+    g_ui_watch_dirs.clear();
+    if (j["ui_watch_dirs"].is_array())
+        for (const auto& dir : j["ui_watch_dirs"])
+            if (dir.is_string())
+                g_ui_watch_dirs.push_back(fs::u8path(dir.get<std::string>()).wstring());
 
     std::string configured = j.value("options_path", std::string());
     fs::path options = configured.empty() ? auto_options_path() : fs::path(configured);
@@ -201,6 +212,18 @@ std::string input_mode()
 std::string feed_signature()
 {
     return g_feed_signature;
+}
+
+bool ui_auto_reload()
+{
+    return g_ui_auto_reload;
+}
+
+std::vector<std::wstring> ui_watch_dirs()
+{
+    if (!g_ui_watch_dirs.empty())
+        return g_ui_watch_dirs;
+    return {(appdata() / L"Minecraft Bedrock" / L"Users").wstring()};
 }
 
 } // namespace config

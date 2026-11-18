@@ -153,6 +153,7 @@ void runDebugOverlay(const wchar_t* disablePath, DebugReloadStats& stats, const 
     diagnosticsKey.poll(stats.keybinds.diagnostics);
     tooltipKey.poll(stats.keybinds.tooltip);
     bool visible = false;
+    bool remoteVisible = false;
     bool inspecting = false;
     auto refresh = Clock::time_point{};
     auto logRefresh = Clock::time_point{};
@@ -162,17 +163,25 @@ void runDebugOverlay(const wchar_t* disablePath, DebugReloadStats& stats, const 
     while (!(stopRequested && stopRequested()) && !std::filesystem::exists(disablePath) && IsWindow(game)) {
         const bool focused = GetForegroundWindow() == game && !IsIconic(game);
         const bool pressed = diagnosticsKey.poll(stats.keybinds.diagnostics);
-        if (pressed && focused) visible = !visible;
-        if (nativeReady && tooltipKey.poll(stats.keybinds.tooltip) && focused) {
+        if (pressed && focused) { visible = !visible; remoteVisible = false; }
+        if (const int request = stats.diagnosticsRequest.exchange(-1); request >= 0)
+            visible = remoteVisible = request != 0;
+        bool toggleTooltip = nativeReady && tooltipKey.poll(stats.keybinds.tooltip) && focused;
+        if (const int request = stats.tooltipRequest.exchange(-1); request >= 0 && nativeReady)
+            toggleTooltip = inspecting != (request != 0);
+        if (toggleTooltip) {
             inspecting = !inspecting;
             if (stats.diagnostics && stats.inspectHoveredControl)
                 stats.diagnostics->write("info", inspecting ? "Hover inspector enabled" : "Hover inspector disabled");
         }
         if (nativeReady) renderer.setHoverInspection(inspecting && focused);
+        const bool shown = visible && (focused || remoteVisible);
+        stats.diagnosticsShown.store(visible);
+        stats.tooltipShown.store(inspecting);
         const auto now = Clock::now();
         // Format/write copied diagnostics on this worker, never on the UI or Present thread.
         // Coalesce changes to at most one block / 2 seconds, only while F3 is visible.
-        if (visible && focused && stats.diagnostics && stats.screenMetrics &&
+        if (shown && stats.diagnostics && stats.screenMetrics &&
             now-logRefresh >= std::chrono::seconds(2)) {
             logRefresh = now;
             const auto snapshot = stats.screenMetrics->diagnostics(now);
@@ -202,7 +211,7 @@ void runDebugOverlay(const wchar_t* disablePath, DebugReloadStats& stats, const 
                 }
             }
         }
-        if (visible && focused && now - refresh >= std::chrono::milliseconds(250)) {
+        if (shown && now - refresh >= std::chrono::milliseconds(250)) {
             char fps[40] = "Unavailable";
             {
                 const std::lock_guard lock(timingMutex);
@@ -259,7 +268,7 @@ void runDebugOverlay(const wchar_t* disablePath, DebugReloadStats& stats, const 
             stats.panel.publish(text, true, stats.settings.uiScale, stats.settings.uiAlpha);
             refresh = now;
         }
-        if (!visible || !focused) stats.panel.publish(text, false, stats.settings.uiScale, stats.settings.uiAlpha);
+        if (!shown) stats.panel.publish(text, false, stats.settings.uiScale, stats.settings.uiAlpha);
         Sleep(15);
     }
     stats.panel.publish(text, false);

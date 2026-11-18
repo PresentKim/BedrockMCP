@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 namespace config {
 
@@ -23,5 +24,11 @@ std::string input_mode();
 // Byte-pattern signature for MouseDevice::feed (version-specific; editable so a
 // game update can be handled without recompiling).
 std::string feed_signature();
+
+// Reload JSON UI automatically when a .json file under a watched directory changes.
+bool ui_auto_reload();
+
+// Directories to watch; empty means the game's Users folder, limited to resource packs.
+std::vector<std::wstring> ui_watch_dirs();
 
 } // namespace config

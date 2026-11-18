@@ -432,8 +432,94 @@ void register_tools(fastmcpp::tools::ToolManager& tm)
 
     auto ui_json = [](const ui::Result& r) { return r.ok ? text_result(r.text) : error_result(r.text); };
 
-    tm.register_tool(Tool{"ui_reload", object_schema(), Json(),
-                          [ui_json](const Json&) { return ui_json(ui::reload()); }});
+    auto boolean = Json{{"type", "boolean"}};
+    auto tristate = [](const Json& args, const char* key) {
+        return args.contains(key) && args[key].is_boolean() ? (args[key].get<bool>() ? 1 : 0) : -1;
+    };
+
+    tm.register_tool(Tool{"ui_reload", object_schema({{"diff", boolean}}), Json(),
+                          [ui_json](const Json& args) { return ui_json(ui::reload(args.value("diff", true))); }});
+
+    tm.register_tool(Tool{"wait_for_screen",
+                          object_schema({{"name", str}, {"leave", str}, {"timeout_ms", num}}), Json(),
+                          [ui_json](const Json& args) {
+                              return ui_json(ui::wait_for_screen(args.value("name", std::string()),
+                                                                 args.value("leave", std::string()),
+                                                                 args.value("timeout_ms", 10000)));
+                          }});
+
+    tm.register_tool(Tool{
+        "ui_click",
+        object_schema({{"name", str},
+                       {"index", num},
+                       {"button", Json{{"type", "string"}, {"enum", Json::array({"left", "right"})}}}},
+                      Json::array({"name"})),
+        Json(),
+        [](const Json& args) -> Json {
+            if (!input::feed_ready())
+                return error_result("feed is not ready yet (see state); retry in a few seconds");
+            ui::Target target = ui::find(args.value("name", std::string()), args.value("index", 0));
+            if (!target.ok)
+                return error_result(target.text);
+            input::MouseButton button =
+                args.value("button", std::string("left")) == "right" ? input::MouseButton::Right
+                                                                      : input::MouseButton::Left;
+            const int x = target.x, y = target.y;
+            enqueue_input([=] {
+                input::move_to(x, y, input::Method::Feed);
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                input::mouse_button(button, input::KeyAction::Down, input::Method::Feed);
+                std::this_thread::sleep_for(std::chrono::milliseconds(80));
+                input::mouse_button(button, input::KeyAction::Up, input::Method::Feed);
+            });
+            return text_result(target.text);
+        }});
+
+    tm.register_tool(Tool{
+        "ui_screenshot",
+        object_schema({{"filter", str},
+                       {"type", str},
+                       {"max_depth", num},
+                       {"limit", num},
+                       {"width", num},
+                       {"height", num}}),
+        Json(),
+        [](const Json& args) -> Json {
+            ui::AnnotateOptions options;
+            options.filter = args.value("filter", std::string());
+            options.type = args.value("type", std::string());
+            options.max_depth = args.value("max_depth", options.max_depth);
+            options.limit = args.value("limit", options.limit);
+            options.width = args.value("width", options.width);
+            options.height = args.value("height", options.height);
+            ui::Annotated a = ui::annotate(options);
+            if (!a.shot.ok)
+                return error_result("ui_screenshot: " + a.shot.error);
+            std::string text = "image " + std::to_string(a.shot.width) + "x" + std::to_string(a.shot.height) +
+                               " of client " + std::to_string(a.shot.client_width) + "x" +
+                               std::to_string(a.shot.client_height) + "; legend rects are client pixels\n" +
+                               a.legend;
+            return Json{{"content", Json::array({Json{{"type", "image"},
+                                                      {"data", base64(a.shot.png)},
+                                                      {"mimeType", "image/png"}},
+                                                 Json{{"type", "text"}, {"text", text}}})}};
+        }});
+
+    tm.register_tool(Tool{"ui_overlay", object_schema({{"panel", boolean}, {"inspector", boolean}}), Json(),
+                          [ui_json, tristate](const Json& args) {
+                              return ui_json(ui::overlay(tristate(args, "panel"), tristate(args, "inspector")));
+                          }});
+
+    tm.register_tool(Tool{"ui_auto_reload", object_schema({{"enabled", boolean}}), Json(),
+                          [ui_json, tristate](const Json& args) {
+                              return ui_json(ui::auto_reload(tristate(args, "enabled")));
+                          }});
+
+    tm.register_tool(Tool{"content_log", object_schema({{"lines", num}, {"filter", str}}), Json(),
+                          [ui_json](const Json& args) {
+                              return ui_json(ui::content_log(args.value("lines", 40),
+                                                             args.value("filter", std::string())));
+                          }});
 
     tm.register_tool(Tool{"ui_screen", object_schema(), Json(),
                           [ui_json](const Json&) { return ui_json(ui::screen()); }});
@@ -480,8 +566,34 @@ std::unordered_map<std::string, std::string> tool_descriptions()
                   "feed_ready must be true before mouse (feed) works; it turns true a moment after "
                   "the game first runs MouseDevice::feed (the game decrypts it on first use)."},
         {"ui_reload", "Reload the legacy JSON UI definitions from the active resource packs, the same as "
-                      "Ctrl+R in game (Conduit). Edit the pack's ui/*.json files first, then call this "
-                      "and check with screenshot. Ore UI screens are not affected."},
+                      "Ctrl+R in game (Conduit). Edit the pack's ui/*.json files first, then call this. "
+                      "With 'diff' (default true) it lists visible controls that moved, resized, appeared "
+                      "or disappeared, as client-pixel rects; content log lines written during the reload "
+                      "(JSON UI errors) are appended. Ore UI screens are not affected. Saving a ui/*.json "
+                      "file also reloads automatically, see ui_auto_reload."},
+        {"wait_for_screen", "Wait until the active legacy JSON UI screen name contains 'name' (e.g. "
+                            "'chest', 'inventory_screen') and/or no longer contains 'leave' (e.g. the screen "
+                            "you just clicked away from). Ore UI screens and loading report the name 'none'. "
+                            "'timeout_ms' defaults to 10000, max 30000. Returns the screen name."},
+        {"ui_click", "Click a visible legacy JSON UI control by name: exact name first, then names "
+                     "containing it; 'index' picks among several matches (default 0). Moves and clicks "
+                     "with feed at the control's center, so it needs feed_ready, and returns the control, "
+                     "its rect and path. Does not check whether another control covers that point."},
+        {"ui_screenshot", "Screenshot with numbered colored boxes over visible legacy JSON UI controls and a "
+                          "legend (number: path [type] rect in client pixels). Select with 'filter' (name "
+                          "contains), 'type' (exact, e.g. button), 'max_depth' (default 64), 'limit' "
+                          "(default 60, controls in tree order); 'width'/'height' as in screenshot."},
+        {"ui_overlay", "Turn Conduit's in-game F3 diagnostics panel ('panel') and F5 hover inspector "
+                       "('inspector') on or off; omit a field to keep it. A panel turned on here stays "
+                       "visible without window focus, so it shows in screenshot. The inspector follows the "
+                       "real mouse cursor and draws only while the game window has focus; use ui_at "
+                       "instead when the game is in the background."},
+        {"ui_auto_reload", "Report or set ('enabled') automatic JSON UI reload when a ui/*.json file under the "
+                           "watched folders changes (default: the game's Users folder; config.json "
+                           "ui_watch_dirs overrides it). Returns the last automatic reload result."},
+        {"content_log", "Last 'lines' (default 40, max 500) lines of the game's newest content log "
+                        "(%APPDATA%\\Minecraft Bedrock\\logs\\ContentLog*.txt), optionally only lines "
+                        "containing 'filter' (e.g. '[UI]', 'error')."},
         {"ui_screen", "Name of the active legacy JSON UI screen with its control, binding and factory "
                       "counts (Conduit diagnostics). Fails on Ore UI screens."},
         {"ui_tree", "Control tree of the active legacy JSON UI screen: name [type], rect in client "

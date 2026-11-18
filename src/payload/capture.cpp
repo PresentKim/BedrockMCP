@@ -16,8 +16,10 @@
 #include <windows.graphics.directx.direct3d11.interop.h>
 
 #include <chrono>
+#include <cstring>
 #include <mutex>
 #include <thread>
+#include <vector>
 
 #include "game_window.hpp"
 #include "swapchain_capture.hpp"
@@ -79,9 +81,25 @@ std::string encode_source(IWICImagingFactory* factory, IWICBitmapSource* src)
 }
 
 Result encode(BYTE* bgra, UINT pitch, UINT img_w, UINT img_h, WICRect crop, int client_w,
-              int client_h, int max_width, int max_height)
+              int client_h, int max_width, int max_height, const Painter& paint)
 {
     UINT crop_w = static_cast<UINT>(crop.Width), crop_h = static_cast<UINT>(crop.Height);
+
+    std::vector<BYTE> painted;
+    if (paint)
+    {
+        painted.resize(static_cast<size_t>(crop_w) * 4 * crop_h);
+        for (UINT row = 0; row < crop_h; ++row)
+            std::memcpy(painted.data() + static_cast<size_t>(row) * crop_w * 4,
+                        bgra + static_cast<size_t>(crop.Y + row) * pitch + static_cast<size_t>(crop.X) * 4,
+                        static_cast<size_t>(crop_w) * 4);
+        paint(painted.data(), crop_w * 4, static_cast<int>(crop_w), static_cast<int>(crop_h));
+        bgra = painted.data();
+        pitch = crop_w * 4;
+        img_w = crop_w;
+        img_h = crop_h;
+        crop = WICRect{0, 0, static_cast<INT>(crop_w), static_cast<INT>(crop_h)};
+    }
 
     // Scale to fit within (max_width, max_height), preserving aspect, never up.
     UINT out_w = crop_w, out_h = crop_h;
@@ -137,7 +155,7 @@ Result encode(BYTE* bgra, UINT pitch, UINT img_w, UINT img_h, WICRect crop, int 
     return r;
 }
 
-Result capture_wgc(HWND hwnd, int max_width, int max_height)
+Result capture_wgc(HWND hwnd, int max_width, int max_height, const Painter& paint)
 {
     try
     {
@@ -243,7 +261,7 @@ Result capture_wgc(HWND hwnd, int max_width, int max_height)
         WICRect crop{0, static_cast<INT>(img_h) - client_h, client_w, client_h};
 
         Result r = encode(static_cast<BYTE*>(mapped.pData), mapped.RowPitch, img_w, img_h, crop,
-                          client_w, client_h, max_width, max_height);
+                          client_w, client_h, max_width, max_height, paint);
 
         context->Unmap(staging.Get(), 0);
         session.Close();
@@ -260,7 +278,7 @@ Result capture_wgc(HWND hwnd, int max_width, int max_height)
     }
 }
 
-Result capture_swapchain(HWND hwnd, int max_width, int max_height)
+Result capture_swapchain(HWND hwnd, int max_width, int max_height, const Painter& paint)
 {
     swapchain_capture::Frame frame;
     std::string error;
@@ -276,7 +294,7 @@ Result capture_swapchain(HWND hwnd, int max_width, int max_height)
     {
         ensure_apartment();
         return encode(frame.bgra.data(), frame.width * 4, frame.width, frame.height, whole,
-                      client_w, client_h, max_width, max_height);
+                      client_w, client_h, max_width, max_height, paint);
     }
     catch (const winrt::hresult_error& e)
     {
@@ -286,7 +304,7 @@ Result capture_swapchain(HWND hwnd, int max_width, int max_height)
 
 } // namespace
 
-Result screenshot(int max_width, int max_height)
+Result screenshot(int max_width, int max_height, const Painter& paint)
 {
     // WGC device/session creation is not safe to run concurrently from several
     // HTTP worker threads; serialize so overlapping requests cannot deadlock.
@@ -297,10 +315,10 @@ Result screenshot(int max_width, int max_height)
     if (!hwnd)
         return err("game window not found");
 
-    Result wgc = capture_wgc(hwnd, max_width, max_height);
+    Result wgc = capture_wgc(hwnd, max_width, max_height, paint);
     if (wgc.ok)
         return wgc;
-    Result fallback = capture_swapchain(hwnd, max_width, max_height);
+    Result fallback = capture_swapchain(hwnd, max_width, max_height, paint);
     if (fallback.ok)
         return fallback;
     return err(wgc.error + "; swapchain fallback: " + fallback.error);
