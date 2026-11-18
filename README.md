@@ -69,7 +69,7 @@ Point the client at `http://127.0.0.1:18081/mcp` instead of port 18080. After in
 * The mouse tools need `feed_ready: true` in `state`. It turns true without user input once the game has decrypted `MouseDevice::feed`; the payload then finds the static `MouseDevice` its callers pass.
 * The Conduit hooks log to `%LOCALAPPDATA%\BedrockMCP\conduit.log`, and the overlay to `overlay.log` (factory rows while F3 is open). The overlay polls F3 and F5 every 15 ms, so synthetic key presses must be held briefly; the `key` tool's PostMessage presses do not reach it. Control types in `ui_tree` are known only for controls created after injection; `ui_reload` rebuilds them.
 * Re-inject after each game restart.
-* After a game update, regenerate `feed_signature` with `find_feed_signature.py` and place it in `config.json` (in the same folder as the DLL and injector).
+* After a game update, regenerate `feed_signature` with `find_feed_signature.py` and place it in `config.json` (in the same folder as the DLL and injector). [docs/porting.md](docs/porting.md) lists every build-specific part (feed, the Conduit profile, spyglass and its overlay offsets, packet decoding) and how each was found.
 
 ## Build from source
 
